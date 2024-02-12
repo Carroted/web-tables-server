@@ -613,10 +613,22 @@ io.onConnection(channel => {
         }
         let parent = coll.parent();
         if (parent) {
-            let force = new RAPIER.Vector3(0, 0.01, 0);
+            let data = parent.userData as ObjectData;
+            let force = new RAPIER.Vector3(0, 0.02, 0);
             parent.applyImpulse(force, true);
-            let torque = new RAPIER.Vector3(0.001, 0.001, 0.001);
-            parent.applyTorqueImpulse(torque, true);
+            if ((data.name || '').startsWith('d')) {
+                let torque = new RAPIER.Vector3(0.001, 0.001, 0.001);
+                parent.applyTorqueImpulse(torque, true);
+
+                // set name to "d6 (<number>)"
+                let val = Math.floor(Math.random() * 6) + 1;
+                data.name = `d6 (${val})`;
+                let content = getShapeContent(coll);
+                if (content) {
+                    content.name = data.name;
+                    changedContents[data.id] = content;
+                }
+            }
             console.log('rolling', collData.coll);
         } else {
             console.log('no parent');
