@@ -331,7 +331,7 @@ const table = addCuboid({
     width: 10,
     height: 0.1,
     depth: 10,
-    position: { x: 0, y: -0.2, z: 0 },
+    position: { x: 0, y: -0.05, z: 0 },
     rotation: RAPIER.RotationOps.identity(),
     color: 0xcccccc,
     alpha: 1,
@@ -373,12 +373,47 @@ const box = addCuboid({
     sound: null,
 });
 
+const d6 = addCuboid({
+    width: 0.18,
+    height: 0.18,
+    depth: 0.18,
+    position: { x: 0.1, y: 2, z: 2 },
+    rotation: RAPIER.RotationOps.identity(),
+    color: 0xffffff,
+    alpha: 1,
+    isStatic: false,
+    friction: 0.5,
+    restitution: 0.5,
+    density: 1,
+    name: "d6",
+    sound: null,
+});
+
 let stepCount = 0;
 
 function step() {
     let before = new Date().getTime();
 
     world.step();
+
+    for (let collider of colliders) {
+        let body = collider.parent();
+        if (!body) continue;
+        let translation = body.translation();
+        if (translation.y < -10) {
+            body.setTranslation(
+                new RAPIER.Vector3(
+                    Math.min(5, Math.max(-5, translation.x)),
+                    1,
+                    Math.min(5, Math.max(-5, translation.z)),
+                ),
+                true
+            );
+            body.setGravityScale(0, true);
+            body.setLinvel(new RAPIER.Vector3(0, 0, 0), true);
+            body.setAngvel(new RAPIER.Vector3(0, 0, 0), true);
+        }
+    }
 
     // apply force to get to the point
     for (let playerID in heldObjects) {
@@ -521,6 +556,8 @@ io.onConnection(channel => {
                 parent.setLinearDamping(100);
                 parent.setAngularDamping(100);
                 parent.setGravityScale(0, true);
+                let data = parent.userData as ObjectData;
+                channel.emit('grabbing', [data.id]);
             } else {
                 console.log('no parent');
             }
@@ -563,6 +600,27 @@ io.onConnection(channel => {
             name: "Box",
             sound: null,
         });
+    });
+
+    channel.on('roll', data => {
+        let collData = data as {
+            coll: string,
+        };
+        let coll = idToCollider[collData.coll];
+        if (!coll) {
+            console.log('no collider for', collData.coll);
+            return;
+        }
+        let parent = coll.parent();
+        if (parent) {
+            let force = new RAPIER.Vector3(0, 0.01, 0);
+            parent.applyImpulse(force, true);
+            let torque = new RAPIER.Vector3(0.001, 0.001, 0.001);
+            parent.applyTorqueImpulse(torque, true);
+            console.log('rolling', collData.coll);
+        } else {
+            console.log('no parent');
+        }
     });
 });
 
