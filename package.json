@@ -13,6 +13,7 @@
     "@geckos.io/server": "^3.0.0"
   },
   "scripts": {
-    "dev": "bun ."
+    "dev": "bun .",
+    "prod": "bun . --prod"
   }
 }
