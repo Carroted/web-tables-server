@@ -4,8 +4,318 @@ import RAPIER from '@dimforge/rapier3d-compat';
 await RAPIER.init();
 console.log('RAPIER initialized');
 
-let gravity = { x: 0.0, y: -9.81, z: 0.0 };
-let world = new RAPIER.World(gravity);
+class Room {
+    world: RAPIER.World;
+    currentID = 0;
+    stepCount = 0;
+
+    changedContents: { [id: string]: ShapeContentData } = {};
+    removedContents: string[] = [];
+    colliders: RAPIER.Collider[] = [];
+    idToCollider: { [id: string]: RAPIER.Collider } = {};
+
+    cursors: { [id: string]: { x: number, y: number, z: number, color: number } } = {};
+    heldObjects: { [playerID: string]: RAPIER.RigidBody[] } = {};
+
+    constructor() {
+        let gravity = { x: 0.0, y: -9.81, z: 0.0 };
+        let world = new RAPIER.World(gravity);
+        this.world = world;
+
+        const table = this.addCuboid({
+            width: 10,
+            height: 0.1,
+            depth: 10,
+            position: { x: 0, y: -0.05, z: 0 },
+            rotation: RAPIER.RotationOps.identity(),
+            color: 0xcccccc,
+            alpha: 1,
+            isStatic: true,
+            friction: 0.5,
+            restitution: 0.5,
+            density: 1,
+            name: "Table",
+            sound: null,
+        });
+
+        const ball = this.addBall({
+            radius: 0.1,
+            position: { x: 2, y: 1, z: 0 },
+            rotation: RAPIER.RotationOps.identity(),
+            color: 0x00ff00,
+            alpha: 1,
+            isStatic: false,
+            friction: 0.5,
+            restitution: 0.5,
+            density: 1,
+            name: "Ball",
+            sound: null,
+        });
+
+        const box = this.addCuboid({
+            width: 0.2,
+            height: 0.2,
+            depth: 0.2,
+            position: { x: 0.1, y: 2, z: 0 },
+            rotation: RAPIER.RotationOps.identity(),
+            color: 0xff0000,
+            alpha: 1,
+            isStatic: false,
+            friction: 0.5,
+            restitution: 0.5,
+            density: 1,
+            name: "Box",
+            sound: null,
+        });
+
+        const d6 = this.addCuboid({
+            width: 0.18,
+            height: 0.18,
+            depth: 0.18,
+            position: { x: 0.1, y: 2, z: 2 },
+            rotation: RAPIER.RotationOps.identity(),
+            color: 0xffffff,
+            alpha: 1,
+            isStatic: false,
+            friction: 0.5,
+            restitution: 0.5,
+            density: 1,
+            name: "d6",
+            sound: null,
+        });
+    }
+
+    step(): PhysicsStepInfo {
+        let before = new Date().getTime();
+
+        this.world.step();
+
+        for (let collider of this.colliders) {
+            let body = collider.parent();
+            if (!body) continue;
+            let translation = body.translation();
+            if (translation.y < -10) {
+                body.setTranslation(
+                    new RAPIER.Vector3(
+                        Math.min(5, Math.max(-5, translation.x)),
+                        1,
+                        Math.min(5, Math.max(-5, translation.z)),
+                    ),
+                    true
+                );
+                body.setGravityScale(0, true);
+                body.setLinvel(new RAPIER.Vector3(0, 0, 0), true);
+                body.setAngvel(new RAPIER.Vector3(0, 0, 0), true);
+            }
+        }
+
+        // apply force to get to the point
+        for (let playerID in this.heldObjects) {
+            for (let rb of this.heldObjects[playerID]) {
+                let mousePoint = this.cursors[playerID];
+                if (!mousePoint) continue;
+                let movement = new RAPIER.Vector3((mousePoint.x - rb.translation().x), 0, (mousePoint.z - rb.translation().z));
+
+                const force = 0.05;
+                const maxForce = 0.1;
+                movement.x *= force;
+                movement.y *= force;
+                movement.z *= force;
+                if (movement.x > maxForce) movement.x = maxForce;
+                if (movement.y > maxForce) movement.y = maxForce;
+                if (movement.z > maxForce) movement.z = maxForce;
+
+                rb.applyImpulse(movement, true);
+            }
+        }
+
+        let info = this.getStepInfo(before);
+
+        //io.emit('physicsStep', info);
+
+        this.stepCount++;
+
+        return info;
+
+        //setTimeout(step, 20); // 50fps
+    }
+
+    generateId() {
+        return `object-${this.currentID++}`;
+    }
+
+
+    addCuboid(cuboid: BaseShapeData & {
+        width: number,
+        height: number,
+        depth: number,
+    }) {
+        let bodyDesc = cuboid.isStatic ? RAPIER.RigidBodyDesc.fixed() : RAPIER.RigidBodyDesc.dynamic();
+        bodyDesc = bodyDesc.setTranslation(
+            cuboid.position.x,
+            cuboid.position.y,
+            cuboid.position.z
+        );
+
+        let data: ObjectData = {
+            color: cuboid.color,
+            alpha: cuboid.alpha,
+            name: cuboid.name,
+            sound: cuboid.sound,
+            id: this.generateId(),
+            description: undefined,
+        };
+
+        bodyDesc.setUserData(data);
+
+        let body = this.world.createRigidBody(bodyDesc);
+        // no collide
+        let colliderDesc = RAPIER.ColliderDesc.cuboid(cuboid.width / 2, cuboid.height / 2, cuboid.depth / 2).setRestitution(cuboid.restitution).setFriction(cuboid.friction).setDensity(cuboid.density)
+            .setActiveEvents(RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS);
+        let coll = this.world.createCollider(colliderDesc!, body);
+
+        this.colliders.push(coll);
+        this.idToCollider[data.id] = coll;
+        let content = getShapeContent(coll);
+        if (content) {
+            this.changedContents[data.id] = content;
+        }
+
+        return coll;
+    }
+
+    addBall(ball: BaseShapeData & {
+        radius: number,
+    }) {
+        let bodyDesc = ball.isStatic ? RAPIER.RigidBodyDesc.fixed() : RAPIER.RigidBodyDesc.dynamic();
+        bodyDesc = bodyDesc.setTranslation(
+            ball.position.x,
+            ball.position.y,
+            ball.position.z
+        );
+
+        let data: ObjectData = {
+            color: ball.color,
+            alpha: ball.alpha,
+            name: ball.name,
+            sound: ball.sound,
+            id: this.generateId(),
+            description: undefined,
+        };
+
+        bodyDesc.setUserData(data);
+
+        let body = this.world.createRigidBody(bodyDesc);
+        // no collide
+        let colliderDesc = RAPIER.ColliderDesc.ball(ball.radius).setRestitution(ball.restitution).setFriction(ball.friction).setDensity(ball.density)
+            .setActiveEvents(RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS);
+        let coll = this.world.createCollider(colliderDesc!, body);
+
+        this.colliders.push(coll);
+        this.idToCollider[data.id] = coll;
+        let content = getShapeContent(coll);
+        if (content) {
+            this.changedContents[data.id] = content;
+            console.log('added ball', data.id);
+        }
+
+        return coll;
+    }
+
+
+    getStepInfo(before: number): PhysicsStepInfo {
+        let changed = this.changedContents;
+        this.changedContents = {};
+        let removed = this.removedContents;
+        this.removedContents = [];
+
+        let transforms: { [id: string]: ShapeTransformData } = this.getShapeTransforms();
+
+        for (let cursor in this.cursors) {
+            transforms['cursor-' + cursor] = {
+                x: this.cursors[cursor].x,
+                y: this.cursors[cursor].y,
+                z: this.cursors[cursor].z,
+                rotation: RAPIER.RotationOps.identity(),
+            };
+        }
+
+        return {
+            delta: {
+                shapeContent: changed,
+                shapeTransforms: transforms,
+                removedContents: removed,
+            },
+            ms: new Date().getTime() - before,
+            sounds: [],
+        };
+    }
+
+    getFullStepInfo(): PhysicsStepInfo {
+        // loop over every collider and get its shape content
+        let changed: { [id: string]: ShapeContentData } = {};
+        this.colliders.forEach((collider) => {
+            let content = getShapeContent(collider);
+            if (content) {
+                changed[content.id] = content;
+            }
+        });
+
+        let transforms: { [id: string]: ShapeTransformData } = this.getShapeTransforms();
+
+        for (let cursor in this.cursors) {
+            transforms['cursor-' + cursor] = {
+                x: this.cursors[cursor].x,
+                y: this.cursors[cursor].y,
+                z: this.cursors[cursor].z,
+                rotation: RAPIER.RotationOps.identity(),
+            };
+
+            let ball: Ball = {
+                id: 'cursor-' + cursor,
+                name: 'Player Cursor',
+                description: undefined,
+                type: "ball",
+                color: this.cursors[cursor].color,
+                alpha: 1,
+                radius: 0.04,
+            };
+
+            changed['cursor-' + cursor] = ball;
+        }
+
+
+        return {
+            delta: {
+                shapeContent: changed,
+                shapeTransforms: transforms,
+                removedContents: [],
+            },
+            ms: 0,
+            sounds: [],
+        };
+    }
+
+    getShapeTransforms(): { [id: string]: ShapeTransformData } {
+        let transforms: { [id: string]: ShapeTransformData } = {};
+        this.colliders.forEach((collider) => {
+            let parent = collider.parent();
+            if (!parent) return;
+            let translation = parent.translation();
+            let rot = parent.rotation();
+            let data = parent.userData as ObjectData;
+            transforms[data.id] = {
+                x: translation.x,
+                y: translation.y,
+                z: translation.z,
+                rotation: rot,
+            };
+        });
+        return transforms;
+    }
+}
+
+
 
 // server.js
 const io = geckos({
@@ -18,19 +328,19 @@ let prod = process.argv.includes('--prod');
 if (prod) {
     console.log('Running in production mode');
     var fs = require('fs');
-var http = require('http');
-var https = require('https');
-var privateKey  = fs.readFileSync('/etc/letsencrypt/live/table.carroted.org/privkey.pem', 'utf8');
-var certificate = fs.readFileSync('/etc/letsencrypt/live/table.carroted.org/fullchain.pem', 'utf8');
+    var http = require('http');
+    var https = require('https');
+    var privateKey = fs.readFileSync('/etc/letsencrypt/live/table.carroted.org/privkey.pem', 'utf8');
+    var certificate = fs.readFileSync('/etc/letsencrypt/live/table.carroted.org/fullchain.pem', 'utf8');
 
-var credentials = {key: privateKey, cert: certificate};
+    var credentials = { key: privateKey, cert: certificate };
 
     var httpsServer = https.createServer(credentials);
-io.addServer(httpsServer);
-httpsServer.listen(9208);
+    io.addServer(httpsServer);
+    httpsServer.listen(9208);
 } else {
     console.log('Running in development mode');
-io.listen(); // default port is 9208
+    io.listen(); // default port is 9208
 }
 
 
@@ -92,86 +402,6 @@ interface PhysicsStepInfo {
     sounds: CollisionSound[];
 }
 
-let changedContents: { [id: string]: ShapeContentData } = {};
-let removedContents: string[] = [];
-let colliders: RAPIER.Collider[] = [];
-let idToCollider: { [id: string]: RAPIER.Collider } = {};
-
-let cursors: { [id: string]: { x: number, y: number, z: number, color: number } } = {};
-let heldObjects: { [playerID: string]: RAPIER.RigidBody[] } = {};
-
-function getStepInfo(before: number): PhysicsStepInfo {
-    let changed = changedContents;
-    changedContents = {};
-    let removed = removedContents;
-    removedContents = [];
-
-    let transforms: { [id: string]: ShapeTransformData } = getShapeTransforms();
-
-    for (let cursor in cursors) {
-        transforms['cursor-' + cursor] = {
-            x: cursors[cursor].x,
-            y: cursors[cursor].y,
-            z: cursors[cursor].z,
-            rotation: RAPIER.RotationOps.identity(),
-        };
-    }
-
-    return {
-        delta: {
-            shapeContent: changed,
-            shapeTransforms: transforms,
-            removedContents: removed,
-        },
-        ms: new Date().getTime() - before,
-        sounds: [],
-    };
-}
-
-function getFullStepInfo(): PhysicsStepInfo {
-    // loop over every collider and get its shape content
-    let changed: { [id: string]: ShapeContentData } = {};
-    colliders.forEach((collider) => {
-        let content = getShapeContent(collider);
-        if (content) {
-            changed[content.id] = content;
-        }
-    });
-
-    let transforms: { [id: string]: ShapeTransformData } = getShapeTransforms();
-
-    for (let cursor in cursors) {
-        transforms['cursor-' + cursor] = {
-            x: cursors[cursor].x,
-            y: cursors[cursor].y,
-            z: cursors[cursor].z,
-            rotation: RAPIER.RotationOps.identity(),
-        };
-
-        let ball: Ball = {
-            id: 'cursor-' + cursor,
-            name: 'Player Cursor',
-            description: undefined,
-            type: "ball",
-            color: cursors[cursor].color,
-            alpha: 1,
-            radius: 0.04,
-        };
-
-        changed['cursor-' + cursor] = ball;
-    }
-
-
-    return {
-        delta: {
-            shapeContent: changed,
-            shapeTransforms: transforms,
-            removedContents: [],
-        },
-        ms: 0,
-        sounds: [],
-    };
-}
 
 /** User data on Rapier objects */
 interface ObjectData {
@@ -186,23 +416,6 @@ interface ObjectData {
     id: string;
 }
 
-function getShapeTransforms(): { [id: string]: ShapeTransformData } {
-    let transforms: { [id: string]: ShapeTransformData } = {};
-    colliders.forEach((collider) => {
-        let parent = collider.parent();
-        if (!parent) return;
-        let translation = parent.translation();
-        let rot = parent.rotation();
-        let data = parent.userData as ObjectData;
-        transforms[data.id] = {
-            x: translation.x,
-            y: translation.y,
-            z: translation.z,
-            rotation: rot,
-        };
-    });
-    return transforms;
-}
 
 interface BaseShapeData {
     name: string | undefined;
@@ -266,209 +479,22 @@ function getShapeContent(collider: RAPIER.Collider): ShapeContentData | null {
     return null;
 }
 
-let currentID = 0;
-function generateId() {
-    return `object-${currentID++}`;
+const rooms: { [id: string]: Room } = {};
+
+// it can be Dangerous if players start spamming rooms, each one is an entire physics world
+const maxRooms = 2;
+
+function stepWorlds() {
+    for (let roomID in rooms) {
+        let room = rooms[roomID];
+        let info = room.step();
+        io.room(roomID).emit('physicsStep', info);
+    }
+
+    setTimeout(stepWorlds, 20);
 }
 
-function addCuboid(cuboid: BaseShapeData & {
-    width: number,
-    height: number,
-    depth: number,
-}) {
-    let bodyDesc = cuboid.isStatic ? RAPIER.RigidBodyDesc.fixed() : RAPIER.RigidBodyDesc.dynamic();
-    bodyDesc = bodyDesc.setTranslation(
-        cuboid.position.x,
-        cuboid.position.y,
-        cuboid.position.z
-    );
-
-    let data: ObjectData = {
-        color: cuboid.color,
-        alpha: cuboid.alpha,
-        name: cuboid.name,
-        sound: cuboid.sound,
-        id: generateId(),
-        description: undefined,
-    };
-
-    bodyDesc.setUserData(data);
-
-    let body = world.createRigidBody(bodyDesc);
-    // no collide
-    let colliderDesc = RAPIER.ColliderDesc.cuboid(cuboid.width / 2, cuboid.height / 2, cuboid.depth / 2).setRestitution(cuboid.restitution).setFriction(cuboid.friction).setDensity(cuboid.density)
-        .setActiveEvents(RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS);
-    let coll = world.createCollider(colliderDesc!, body);
-
-    colliders.push(coll);
-    idToCollider[data.id] = coll;
-    let content = getShapeContent(coll);
-    if (content) {
-        changedContents[data.id] = content;
-    }
-
-    return coll;
-}
-
-function addBall(ball: BaseShapeData & {
-    radius: number,
-}) {
-    let bodyDesc = ball.isStatic ? RAPIER.RigidBodyDesc.fixed() : RAPIER.RigidBodyDesc.dynamic();
-    bodyDesc = bodyDesc.setTranslation(
-        ball.position.x,
-        ball.position.y,
-        ball.position.z
-    );
-
-    let data: ObjectData = {
-        color: ball.color,
-        alpha: ball.alpha,
-        name: ball.name,
-        sound: ball.sound,
-        id: generateId(),
-        description: undefined,
-    };
-
-    bodyDesc.setUserData(data);
-
-    let body = world.createRigidBody(bodyDesc);
-    // no collide
-    let colliderDesc = RAPIER.ColliderDesc.ball(ball.radius).setRestitution(ball.restitution).setFriction(ball.friction).setDensity(ball.density)
-        .setActiveEvents(RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS);
-    let coll = world.createCollider(colliderDesc!, body);
-
-    colliders.push(coll);
-    idToCollider[data.id] = coll;
-    let content = getShapeContent(coll);
-    if (content) {
-        changedContents[data.id] = content;
-        console.log('added ball', data.id);
-    }
-
-    return coll;
-}
-
-const table = addCuboid({
-    width: 10,
-    height: 0.1,
-    depth: 10,
-    position: { x: 0, y: -0.05, z: 0 },
-    rotation: RAPIER.RotationOps.identity(),
-    color: 0xcccccc,
-    alpha: 1,
-    isStatic: true,
-    friction: 0.5,
-    restitution: 0.5,
-    density: 1,
-    name: "Table",
-    sound: null,
-});
-
-const ball = addBall({
-    radius: 0.1,
-    position: { x: 2, y: 1, z: 0 },
-    rotation: RAPIER.RotationOps.identity(),
-    color: 0x00ff00,
-    alpha: 1,
-    isStatic: false,
-    friction: 0.5,
-    restitution: 0.5,
-    density: 1,
-    name: "Ball",
-    sound: null,
-});
-
-const box = addCuboid({
-    width: 0.2,
-    height: 0.2,
-    depth: 0.2,
-    position: { x: 0.1, y: 2, z: 0 },
-    rotation: RAPIER.RotationOps.identity(),
-    color: 0xff0000,
-    alpha: 1,
-    isStatic: false,
-    friction: 0.5,
-    restitution: 0.5,
-    density: 1,
-    name: "Box",
-    sound: null,
-});
-
-const d6 = addCuboid({
-    width: 0.18,
-    height: 0.18,
-    depth: 0.18,
-    position: { x: 0.1, y: 2, z: 2 },
-    rotation: RAPIER.RotationOps.identity(),
-    color: 0xffffff,
-    alpha: 1,
-    isStatic: false,
-    friction: 0.5,
-    restitution: 0.5,
-    density: 1,
-    name: "d6",
-    sound: null,
-});
-
-let stepCount = 0;
-
-function step() {
-    let before = new Date().getTime();
-
-    world.step();
-
-    for (let collider of colliders) {
-        let body = collider.parent();
-        if (!body) continue;
-        let translation = body.translation();
-        if (translation.y < -10) {
-            body.setTranslation(
-                new RAPIER.Vector3(
-                    Math.min(5, Math.max(-5, translation.x)),
-                    1,
-                    Math.min(5, Math.max(-5, translation.z)),
-                ),
-                true
-            );
-            body.setGravityScale(0, true);
-            body.setLinvel(new RAPIER.Vector3(0, 0, 0), true);
-            body.setAngvel(new RAPIER.Vector3(0, 0, 0), true);
-        }
-    }
-
-    // apply force to get to the point
-    for (let playerID in heldObjects) {
-        for (let rb of heldObjects[playerID]) {
-            let mousePoint = cursors[playerID];
-            if (!mousePoint) continue;
-            let movement = new RAPIER.Vector3((mousePoint.x - rb.translation().x), 0, (mousePoint.z - rb.translation().z));
-
-            const force = 0.05;
-            const maxForce = 0.1;
-            movement.x *= force;
-            movement.y *= force;
-            movement.z *= force;
-            if (movement.x > maxForce) movement.x = maxForce;
-            if (movement.y > maxForce) movement.y = maxForce;
-            if (movement.z > maxForce) movement.z = maxForce;
-
-            rb.applyImpulse(movement, true);
-        }
-    }
-
-    let info = getStepInfo(before);
-
-    io.emit('physicsStep', info);
-
-    stepCount++;
-    if (stepCount % 100 === 0) {
-        console.log(`Physics step ${stepCount}`);
-    }
-
-    setTimeout(step, 20); // 50fps
-}
-
-step();
+stepWorlds();
 
 let channelCount = 0;
 let colors = [0xffff00, 0x00ffff, 0x0000ff, 0xffff00, 0xff00ff, 0x00ffff];
@@ -484,24 +510,53 @@ io.onConnection(channel => {
         reliable: true,
     });
 
-    let ball: Ball = {
-        id: 'cursor-' + id,
-        name: 'Player Cursor',
-        description: undefined,
-        type: "ball",
-        color: color,
-        alpha: 1,
-        radius: 0.04,
-    };
+    channel.on('joinRoom', data => {
+        let roomID = data as string;
+        let room = rooms[roomID];
+        channel.leave();
+        if (!room) {
+            channel.emit('error', 'Room not found');
+            channel.join('lobby');
+            console.log('Player', id, 'tried to join non-existent room', roomID);
+            return;
+        }
+        channel.join(roomID);
+        console.log('Player', id, 'joined room', roomID);
 
-    changedContents['cursor-' + id] = ball;
+        let ball: Ball = {
+            id: 'cursor-' + id,
+            name: 'Player Cursor',
+            description: undefined,
+            type: "ball",
+            color: color,
+            alpha: 1,
+            radius: 0.04,
+        };
 
-    channel.onDisconnect(() => {
-        console.log(`${channel.id} got disconnected`)
+        room.changedContents['cursor-' + id] = ball;
+
+        // give them the current state, we get absolutely all contents and transforms
+        channel.emit('physicsStep', room.getFullStepInfo());
     });
 
-    // give them the current state, we get absolutely all contents and transforms
-    channel.emit('physicsStep', getFullStepInfo());
+    channel.on('createRoom', data => {
+        let roomID = data as string;
+        if (rooms[roomID]) {
+            channel.emit('error', 'Room already exists');
+            return;
+        }
+        if (Object.keys(rooms).length >= maxRooms) {
+            channel.emit('error', 'Too many rooms already, sorry lololol');
+            return;
+        }
+        rooms[roomID] = new Room();
+        channel.join(roomID);
+        console.log('Player', id, 'created room', roomID);
+    });
+
+    channel.onDisconnect(() => {
+        console.log(`${channel.id} got disconnected`);
+    });
 
     channel.on('chat message', data => {
         console.log(`got "${data}" from "chat message"`)
@@ -510,20 +565,24 @@ io.onConnection(channel => {
     });
 
     channel.on('mouseMove', data => {
+        if (!channel.roomId) return;
+        let room = rooms[channel.roomId];
+        if (!room) return;
+
         let mouseData = data as {
             x: number,
             y: number,
             z: number,
             coll?: number, // hovering over this collider
         };
-        cursors[id] = {
+        room.cursors[id] = {
             x: mouseData.x,
             y: mouseData.y,
             z: mouseData.z,
             color: 0xffffff,
         };
         if (mouseData.coll !== undefined) {
-            let coll = idToCollider[mouseData.coll];
+            let coll = room.idToCollider[mouseData.coll];
             if (!coll) {
                 console.log('no collider for', mouseData.coll);
                 return;
@@ -535,11 +594,15 @@ io.onConnection(channel => {
                 console.log('no parent');
             }
         }
-        io.room(channel.roomId).emit('cursors', cursors);
+        io.room(channel.roomId).emit('cursors', room.cursors);
     });
 
     // on mousedown
     channel.on('mouseDown', data => {
+        if (!channel.roomId) return;
+        let room = rooms[channel.roomId];
+        if (!room) return;
+
         let mouseData = data as {
             x: number,
             y: number,
@@ -561,19 +624,19 @@ io.onConnection(channel => {
             name: "Box",
             sound: null,
         });*/
-        if (heldObjects[id] === undefined) {
-            heldObjects[id] = [];
+        if (room.heldObjects[id] === undefined) {
+            room.heldObjects[id] = [];
         }
 
         if (mouseData.coll !== undefined) {
-            let coll = idToCollider[mouseData.coll];
+            let coll = room.idToCollider[mouseData.coll];
             if (!coll) {
                 console.log('no collider for', mouseData.coll);
                 return;
             }
             let parent = coll.parent();
             if (parent) {
-                heldObjects[id].push(parent);
+                room.heldObjects[id].push(parent);
                 parent.setLinearDamping(100);
                 parent.setAngularDamping(100);
                 parent.setGravityScale(0, true);
@@ -587,26 +650,34 @@ io.onConnection(channel => {
 
     // mouse up = do nothing except clear held objects
     channel.on('mouseUp', data => {
+        if (!channel.roomId) return;
+        let room = rooms[channel.roomId];
+        if (!room) return;
+
         // reset all held objects
-        if (heldObjects[id] === undefined) {
-            heldObjects[id] = [];
+        if (room.heldObjects[id] === undefined) {
+            room.heldObjects[id] = [];
         }
-        for (let rb of heldObjects[id]) {
+        for (let rb of room.heldObjects[id]) {
             rb.setLinearDamping(0);
             rb.setAngularDamping(0);
             rb.setGravityScale(1, true);
         }
-        heldObjects[id] = [];
+        room.heldObjects[id] = [];
     });
 
     channel.on('spawnCuboid', data => {
+        if (!channel.roomId) return;
+        let room = rooms[channel.roomId];
+        if (!room) return;
+
         let mouseData = data as {
             x: number,
             y: number,
             z: number,
         };
 
-        addCuboid({
+        room.addCuboid({
             width: 0.2,
             height: 0.2,
             depth: 0.2,
@@ -624,10 +695,14 @@ io.onConnection(channel => {
     });
 
     channel.on('roll', data => {
+        if (!channel.roomId) return;
+        let room = rooms[channel.roomId];
+        if (!room) return;
+
         let collData = data as {
             coll: string,
         };
-        let coll = idToCollider[collData.coll];
+        let coll = room.idToCollider[collData.coll];
         if (!coll) {
             console.log('no collider for', collData.coll);
             return;
@@ -647,7 +722,7 @@ io.onConnection(channel => {
                 let content = getShapeContent(coll);
                 if (content) {
                     content.name = data.name;
-                    changedContents[data.id] = content;
+                    room.changedContents[data.id] = content;
                 }
             }
             console.log('rolling', collData.coll);
