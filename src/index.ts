@@ -1,14 +1,6 @@
 import server, { geckos } from "@geckos.io/server";
 import RAPIER from '@dimforge/rapier3d-compat';
 
-var fs = require('fs');
-var http = require('http');
-var https = require('https');
-var privateKey  = fs.readFileSync('/etc/letsencrypt/live/table.carroted.org/privkey.pem', 'utf8');
-var certificate = fs.readFileSync('/etc/letsencrypt/live/table.carroted.org/fullchain.pem', 'utf8');
-
-var credentials = {key: privateKey, cert: certificate};
-
 await RAPIER.init();
 console.log('RAPIER initialized');
 
@@ -21,12 +13,27 @@ const io = geckos({
     cors: { allowAuthorization: true, origin: '*' },
 });
 
+// --prod arg
+let prod = process.argv.includes('--prod');
+if (prod) {
+    console.log('Running in production mode');
+    var fs = require('fs');
+var http = require('http');
+var https = require('https');
+var privateKey  = fs.readFileSync('/etc/letsencrypt/live/table.carroted.org/privkey.pem', 'utf8');
+var certificate = fs.readFileSync('/etc/letsencrypt/live/table.carroted.org/fullchain.pem', 'utf8');
 
-//io.listen(); // default port is 9208
+var credentials = {key: privateKey, cert: certificate};
 
-var httpsServer = https.createServer(credentials);
+    var httpsServer = https.createServer(credentials);
 io.addServer(httpsServer);
 httpsServer.listen(9208);
+} else {
+    console.log('Running in development mode');
+io.listen(); // default port is 9208
+}
+
+
 
 interface ShapeContentData {
     id: string;
