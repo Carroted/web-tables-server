@@ -9,7 +9,8 @@ let world = new RAPIER.World(gravity);
 
 // server.js
 const io = geckos({
-    multiplex: true // default
+    multiplex: true, // default
+    cors: { allowAuthorization: true, origin: '*' },
 });
 
 io.listen(); // default port is 9208
