@@ -28,7 +28,7 @@ class Room {
             depth: 10,
             position: { x: 0, y: -0.05, z: 0 },
             rotation: RAPIER.RotationOps.identity(),
-            color: 0xcccccc,
+            color: 0x888888,
             alpha: 1,
             isStatic: true,
             friction: 0.5,
@@ -96,23 +96,29 @@ class Room {
             modelOffset: null,
         });
 
+        this.addMeeple(0xff0000, { x: -3, y: 0.1, z: 3 });
+        this.addMeeple(0x00ff00, { x: 3, y: 0.1, z: 3 });
+        this.addMeeple(0x0000ff, { x: 1, y: 0.1, z: 3 });
+    }
+
+    addMeeple(color: number, position: { x: number, y: number, z: number }) {
         const meeple = this.addCuboid({
-            width: 0.1,
-            height: 0.2,
-            depth: 0.1,
-            position: { x: 0.1, y: 2, z: -2 },
+            width: 0.25,
+            height: 0.4,
+            depth: 0.25,
+            position,
             rotation: RAPIER.RotationOps.identity(),
-            color: 0xff00ff,
+            color,
             alpha: 1,
             isStatic: false,
             friction: 0.5,
-            restitution: 0.5,
+            restitution: 0,
             density: 1,
             name: "Meeple",
             sound: null,
-            model: '/meeple.gltf',
+            model: '/meeple_web.gltf',
             modelScale: 0.1,
-            modelOffset: { x: 0, y: 0.1, z: 0 },
+            modelOffset: { x: 0, y: -1.99, z: 0 },
         });
     }
 
