@@ -36,6 +36,9 @@ class Room {
             density: 1,
             name: "Table",
             sound: null,
+            model: null,
+            modelScale: null,
+            modelOffset: null,
         });
 
         const ball = this.addBall({
@@ -50,6 +53,9 @@ class Room {
             density: 1,
             name: "Ball",
             sound: null,
+            model: null,
+            modelScale: null,
+            modelOffset: null,
         });
 
         const box = this.addCuboid({
@@ -66,6 +72,9 @@ class Room {
             density: 1,
             name: "Box",
             sound: null,
+            model: null,
+            modelScale: null,
+            modelOffset: null,
         });
 
         const d6 = this.addCuboid({
@@ -82,6 +91,28 @@ class Room {
             density: 1,
             name: "d6",
             sound: null,
+            model: null,
+            modelScale: null,
+            modelOffset: null,
+        });
+
+        const meeple = this.addCuboid({
+            width: 0.1,
+            height: 0.2,
+            depth: 0.1,
+            position: { x: 0.1, y: 2, z: -2 },
+            rotation: RAPIER.RotationOps.identity(),
+            color: 0xff00ff,
+            alpha: 1,
+            isStatic: false,
+            friction: 0.5,
+            restitution: 0.5,
+            density: 1,
+            name: "Meeple",
+            sound: null,
+            model: '/meeple.gltf',
+            modelScale: 0.1,
+            modelOffset: { x: 0, y: 0.1, z: 0 },
         });
     }
 
@@ -164,6 +195,9 @@ class Room {
             sound: cuboid.sound,
             id: this.generateId(),
             description: undefined,
+            model: cuboid.model,
+            modelScale: cuboid.modelScale,
+            modelOffset: cuboid.modelOffset,
         };
 
         bodyDesc.setUserData(data);
@@ -201,6 +235,9 @@ class Room {
             sound: ball.sound,
             id: this.generateId(),
             description: undefined,
+            model: ball.model,
+            modelScale: ball.modelScale,
+            modelOffset: ball.modelOffset,
         };
 
         bodyDesc.setUserData(data);
@@ -279,6 +316,9 @@ class Room {
                 color: this.cursors[cursor].color,
                 alpha: 1,
                 radius: 0.04,
+                model: null,
+                modelScale: null,
+                modelOffset: null,
             };
 
             changed['cursor-' + cursor] = ball;
@@ -353,6 +393,9 @@ interface ShapeContentData {
     color: number;
     /** 0-1 alpha */
     alpha: number;
+    model: string | null;
+    modelScale: number | null;
+    modelOffset: { x: number, y: number, z: number } | null;
 }
 
 interface CollisionSound {
@@ -414,6 +457,9 @@ interface ObjectData {
     /** 0-1 alpha */
     alpha: number;
     id: string;
+    model: string | null;
+    modelScale: number | null;
+    modelOffset: { x: number, y: number, z: number } | null;
 }
 
 
@@ -431,6 +477,9 @@ interface BaseShapeData {
     friction: number,
     restitution: number,
     density: number,
+    model: string | null,
+    modelScale: number | null,
+    modelOffset: { x: number, y: number, z: number } | null;
 }
 
 function getShapeContent(collider: RAPIER.Collider): ShapeContentData | null {
@@ -447,6 +496,9 @@ function getShapeContent(collider: RAPIER.Collider): ShapeContentData | null {
         alpha: bodyData.alpha,
         name: bodyData.name,
         description: bodyData.description,
+        model: bodyData.model,
+        modelScale: bodyData.modelScale,
+        modelOffset: bodyData.modelOffset,
     };
 
     switch (shape.type) {
@@ -494,6 +546,8 @@ function stepWorlds() {
     setTimeout(stepWorlds, 20);
 }
 
+rooms['zone'] = new Room();
+
 stepWorlds();
 
 let channelCount = 0;
@@ -531,6 +585,9 @@ io.onConnection(channel => {
             color: color,
             alpha: 1,
             radius: 0.04,
+            model: null,
+            modelScale: null,
+            modelOffset: null,
         };
 
         room.changedContents['cursor-' + id] = ball;
@@ -616,7 +673,7 @@ io.onConnection(channel => {
             position: { x: mouseData.x, y: mouseData.y + 0.1, z: mouseData.z },
             rotation: RAPIER.RotationOps.identity(),
             color: 0xff0000,
-            alpha: 1,
+            alpha: 1,xact
             isStatic: false,
             friction: 0.5,
             restitution: 0.5,
@@ -691,6 +748,9 @@ io.onConnection(channel => {
             density: 1,
             name: "Box",
             sound: null,
+            model: null,
+            modelScale: null,
+            modelOffset: null,
         });
     });
 
