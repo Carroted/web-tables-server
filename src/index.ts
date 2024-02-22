@@ -322,9 +322,9 @@ class Room {
                 color: this.cursors[cursor].color,
                 alpha: 1,
                 radius: 0.04,
-                model: null,
-                modelScale: null,
-                modelOffset: null,
+                model: '/glove.gltf',
+                modelScale: 0.1,
+                modelOffset: { x: 0, y: 0, z: 0 },
             };
 
             changed['cursor-' + cursor] = ball;
@@ -591,9 +591,9 @@ io.onConnection(channel => {
             color: color,
             alpha: 1,
             radius: 0.04,
-            model: null,
-            modelScale: null,
-            modelOffset: null,
+            model: '/glove.gltf',
+            modelScale: 0.1,
+            modelOffset: { x: 0, y: 0, z: 0 },
         };
 
         room.changedContents['cursor-' + id] = ball;
