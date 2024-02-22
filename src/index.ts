@@ -323,7 +323,7 @@ class Room {
                 alpha: 1,
                 radius: 0.04,
                 model: '/glove.gltf',
-                modelScale: 0.1,
+                modelScale: 0.05,
                 modelOffset: { x: 0, y: 0, z: 0 },
             };
 
@@ -592,7 +592,7 @@ io.onConnection(channel => {
             alpha: 1,
             radius: 0.04,
             model: '/glove.gltf',
-            modelScale: 0.1,
+            modelScale: 0.05,
             modelOffset: { x: 0, y: 0, z: 0 },
         };
 
@@ -643,7 +643,7 @@ io.onConnection(channel => {
             x: mouseData.x,
             y: mouseData.y,
             z: mouseData.z,
-            color: 0xffffff,
+            color: color,
         };
         if (mouseData.coll !== undefined) {
             let coll = room.idToCollider[mouseData.coll];
