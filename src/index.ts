@@ -116,7 +116,7 @@ class Room {
             density: 1,
             name: "Meeple",
             sound: null,
-            model: '/meeple_web.gltf',
+            model: '/meeple.gltf',
             modelScale: 0.1,
             modelOffset: { x: 0, y: -1.99, z: 0 },
         });
@@ -619,6 +619,7 @@ io.onConnection(channel => {
 
     channel.onDisconnect(() => {
         console.log(`${channel.id} got disconnected`);
+        // TODO: remove cursors
     });
 
     channel.on('chat message', data => {
@@ -794,6 +795,26 @@ io.onConnection(channel => {
             console.log('rolling', collData.coll);
         } else {
             console.log('no parent');
+        }
+    });
+
+    channel.on('scroll', data => {
+        // if they are holding objects, spin them all with rb.applyTorqueImpulse(new RAPIER.Vector3(0,delta, 0), true);
+        let delta = data as number;
+
+        if (!channel.roomId) return;
+
+        let room = rooms[channel.roomId];
+
+        if (!room) return;
+
+        if (room.heldObjects[id] === undefined) {
+            room.heldObjects[id] = [];
+        }
+
+        for (let rb of room.heldObjects[id]) {
+            let data = rb.userData as ObjectData;
+            rb.applyTorqueImpulse(new RAPIER.Vector3(0, delta * 2, 0), true);
         }
     });
 });
