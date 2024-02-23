@@ -16,6 +16,7 @@ class Room {
 
     cursors: { [id: string]: { x: number, y: number, z: number, color: number } } = {};
     heldObjects: { [playerID: string]: RAPIER.RigidBody[] } = {};
+    controlingObject: { [playerID: string]: RAPIER.RigidBody } = {};
 
     constructor() {
         let gravity = { x: 0.0, y: -9.81, z: 0.0 };
