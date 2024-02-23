@@ -4,6 +4,19 @@ import RAPIER from '@dimforge/rapier3d-compat';
 await RAPIER.init();
 console.log('RAPIER initialized');
 
+function getForwardVector(quat: { x: number, y: number, z: number, w: number }) {
+    let x = 2 * (quat.x * quat.z + quat.w * quat.y);
+    let y = 2 * (quat.y * quat.z - quat.w * quat.x);
+    let z = 1 - 2 * (quat.x * quat.x + quat.y * quat.y);
+    return { x, y, z };
+}
+function getRightVector(quat: { x: number, y: number, z: number, w: number }) {
+    let x = 1 - 2 * (quat.y * quat.y + quat.z * quat.z);
+    let y = 2 * (quat.x * quat.y + quat.w * quat.z);
+    let z = 2 * (quat.x * quat.z - quat.w * quat.y);
+    return { x, y, z };
+}
+
 class Room {
     world: RAPIER.World;
     currentID = 0;
@@ -16,7 +29,9 @@ class Room {
 
     cursors: { [id: string]: { x: number, y: number, z: number, color: number } } = {};
     heldObjects: { [playerID: string]: RAPIER.RigidBody[] } = {};
-    controlingObject: { [playerID: string]: RAPIER.RigidBody } = {};
+    controlObject: { [playerID: string]: RAPIER.RigidBody } = {};
+    controlKeys: { [playerID: string]: { [key: string]: boolean } } = {};
+    controlCharacters: { [playerID: string]: RAPIER.KinematicCharacterController } = {};
 
     constructor() {
         let gravity = { x: 0.0, y: -9.81, z: 0.0 };
@@ -41,6 +56,28 @@ class Room {
             modelScale: null,
             modelOffset: null,
         });
+
+        // make stairs
+        for (let i = 0; i < 10; i++) {
+            const stair = this.addCuboid({
+                width: 1,
+                height: 0.02,
+                depth: 0.3,
+                position: { x: 0, y: 0.02 * i, z: 0.3 * i },
+                rotation: RAPIER.RotationOps.identity(),
+                color: 0x888888,
+                alpha: 1,
+                isStatic: true,
+                friction: 0.5,
+                restitution: 0.5,
+                density: 1,
+                name: "Stair",
+                sound: null,
+                model: null,
+                modelScale: null,
+                modelOffset: null,
+            });
+        }
 
         const ball = this.addBall({
             radius: 0.1,
@@ -145,6 +182,44 @@ class Room {
                 body.setLinvel(new RAPIER.Vector3(0, 0, 0), true);
                 body.setAngvel(new RAPIER.Vector3(0, 0, 0), true);
             }
+        }
+
+        for (let playerID in this.controlObject) {
+            let rb = this.controlObject[playerID];
+            let keys = this.controlKeys[playerID];
+            if (!keys) continue;
+            let force = new RAPIER.Vector3(0, 0, 0);
+            function addToForce(b: RAPIER.Vector3) {
+                force.x += b.x;
+                force.y += b.y;
+                force.z += b.z;
+            }
+            function neg(a: RAPIER.Vector3) {
+                return new RAPIER.Vector3(-a.x, -a.y, -a.z);
+            }
+            function mul(a: RAPIER.Vector3, s: number) {
+                return new RAPIER.Vector3(s * a.x, s * a.y, s * a.z);
+            }
+            let backward = mul(getRightVector(rb.rotation()), 0.02);
+            let right = mul(getForwardVector(rb.rotation()), 0.02);
+            let left = neg(right);
+            let forward = neg(backward);
+
+            if (keys['w']) addToForce(forward);
+            if (keys['s']) addToForce(backward);
+            if (keys['a']) addToForce(right);
+            if (keys['d']) addToForce(left);
+            let char = this.controlCharacters[playerID];
+            if (!char) continue;
+            char.computeColliderMovement(rb.collider(0), force);
+            let newVec = char.computedMovement();
+            newVec.x += rb.translation().x;
+            newVec.y = rb.translation().y;
+            newVec.z += rb.translation().z;
+            rb.setNextKinematicTranslation(newVec);
+
+            // rotate the vec3 based on the quat
+            //let q = rb.collider().
         }
 
         // apply force to get to the point
@@ -618,10 +693,7 @@ io.onConnection(channel => {
         console.log('Player', id, 'created room', roomID);
     });
 
-    channel.onDisconnect(() => {
-        console.log(`${channel.id} got disconnected`);
-        // TODO: remove cursors
-    });
+
 
     channel.on('chat message', data => {
         console.log(`got "${data}" from "chat message"`)
@@ -798,6 +870,114 @@ io.onConnection(channel => {
             console.log('no parent');
         }
     });
+
+    channel.on('control', data => {
+        if (!channel.roomId) return;
+        let room = rooms[channel.roomId];
+        if (!room) return;
+
+        let collData = data as {
+            coll: string,
+        };
+        let coll = room.idToCollider[collData.coll];
+        if (!coll) {
+            console.log('no collider for', collData.coll);
+            return;
+        }
+        let parent = coll.parent();
+        if (parent) {
+            let data = parent.userData as ObjectData;
+            room.controlObject[id] = parent;
+            channel.emit('controlling', data.id);
+            console.log('controlling', collData.coll);
+            // freeze its rotation
+            parent.lockRotations(true, true);
+            parent.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
+            let characterController = room.world.createCharacterController(0.01);
+            characterController.setApplyImpulsesToDynamicBodies(true);
+            room.controlCharacters[id] = characterController;
+        } else {
+            console.log('no parent');
+        }
+    });
+    channel.on('uncontrol', data => {
+        if (!channel.roomId) return;
+        let room = rooms[channel.roomId];
+        if (!room) return;
+
+        if (room.controlObject[id]) {
+            room.controlObject[id].lockRotations(false, true);
+            room.controlObject[id].setBodyType(RAPIER.RigidBodyType.Dynamic, true);
+
+            delete room.controlObject[id];
+            if (room.controlKeys[id]) delete room.controlKeys[id];
+            // remove it
+            if (room.controlCharacters[id]) {
+                room.world.removeCharacterController(room.controlCharacters[id]);
+                delete room.controlCharacters[id];
+            }
+        }
+    });
+    channel.onDisconnect(() => {
+        console.log(`${channel.id} got disconnected`);
+        // first, uncontrol
+        if (!channel.roomId) return;
+        let room = rooms[channel.roomId];
+        if (!room) return;
+
+        if (room.controlObject[id]) {
+            room.controlObject[id].lockRotations(false, true);
+            room.controlObject[id].setBodyType(RAPIER.RigidBodyType.Dynamic, true);
+
+            delete room.controlObject[id];
+            if (room.controlKeys[id]) delete room.controlKeys[id];
+            // remove it
+            if (room.controlCharacters[id]) {
+                room.world.removeCharacterController(room.controlCharacters[id]);
+                delete room.controlCharacters[id];
+            }
+        }
+
+        // next remove all held objects
+        if (room.heldObjects[id]) {
+            for (let rb of room.heldObjects[id]) {
+                rb.setLinearDamping(0);
+                rb.setAngularDamping(0);
+                rb.setGravityScale(1, true);
+            }
+            room.heldObjects[id] = [];
+        }
+        // TODO: remove cursors
+    });
+    channel.on('controlRotation', data => {
+        if (!channel.roomId) return;
+        let room = rooms[channel.roomId];
+        if (!room) return;
+
+        let obj = room.controlObject[id];
+        if (!obj) return;
+        let quaternion = data as { x: number, y: number, z: number, w: number };
+        obj.setRotation(new RAPIER.Quaternion(quaternion.x, quaternion.y, quaternion.z, quaternion.w), true);
+    });
+    channel.on('controlKeyDown', data => {
+        if (!channel.roomId) return;
+        let room = rooms[channel.roomId];
+        if (!room) return;
+
+        let key = data as string;
+        if (!room.controlKeys[id]) room.controlKeys[id] = {};
+        room.controlKeys[id][key] = true;
+    });
+    channel.on('controlKeyUp', data => {
+        if (!channel.roomId) return;
+        let room = rooms[channel.roomId];
+        if (!room) return;
+
+        let key = data as string;
+        if (!room.controlKeys[id]) room.controlKeys[id] = {};
+        room.controlKeys[id][key] = false;
+    });
+
 
     channel.on('scroll', data => {
         // if they are holding objects, spin them all with rb.applyTorqueImpulse(new RAPIER.Vector3(0,delta, 0), true);
