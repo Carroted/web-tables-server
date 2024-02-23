@@ -63,8 +63,8 @@ class Room {
             const stair = this.addCuboid({
                 width: 1,
                 height: 0.02,
-                depth: 0.1,
-                position: { x: 0, y: 0.04 * i, z: 0.1 * i },
+                depth: 0.05,
+                position: { x: 0, y: 0.07 * i, z: 0.05 * i },
                 rotation: RAPIER.RotationOps.identity(),
                 color: 0x888888,
                 alpha: 1,
