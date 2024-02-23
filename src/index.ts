@@ -32,6 +32,7 @@ class Room {
     controlObject: { [playerID: string]: RAPIER.RigidBody } = {};
     controlKeys: { [playerID: string]: { [key: string]: boolean } } = {};
     controlCharacters: { [playerID: string]: RAPIER.KinematicCharacterController } = {};
+    controlJump: { [playerID: string]: boolean } = {};
 
     constructor() {
         let gravity = { x: 0.0, y: -9.81, z: 0.0 };
@@ -58,12 +59,12 @@ class Room {
         });
 
         // make stairs
-        for (let i = 0; i < 10; i++) {
+        for (let i = 0; i < 50; i++) {
             const stair = this.addCuboid({
                 width: 1,
                 height: 0.02,
-                depth: 0.3,
-                position: { x: 0, y: 0.02 * i, z: 0.3 * i },
+                depth: 0.1,
+                position: { x: 0, y: 0.04 * i, z: 0.1 * i },
                 rotation: RAPIER.RotationOps.identity(),
                 color: 0x888888,
                 alpha: 1,
@@ -209,12 +210,17 @@ class Room {
             if (keys['s']) addToForce(backward);
             if (keys['a']) addToForce(right);
             if (keys['d']) addToForce(left);
+            addToForce(new RAPIER.Vector3(0, -0.02, 0));
+            if (this.controlJump[playerID]) {
+                addToForce(new RAPIER.Vector3(0, 0.2, 0));
+                this.controlJump[playerID] = false;
+            }
             let char = this.controlCharacters[playerID];
             if (!char) continue;
             char.computeColliderMovement(rb.collider(0), force);
             let newVec = char.computedMovement();
             newVec.x += rb.translation().x;
-            newVec.y = rb.translation().y;
+            newVec.y += rb.translation().y;
             newVec.z += rb.translation().z;
             rb.setNextKinematicTranslation(newVec);
 
@@ -894,7 +900,9 @@ io.onConnection(channel => {
             parent.lockRotations(true, true);
             parent.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
             let characterController = room.world.createCharacterController(0.01);
+            characterController.enableAutostep(0.08, 0.02, false);
             characterController.setApplyImpulsesToDynamicBodies(true);
+
             room.controlCharacters[id] = characterController;
         } else {
             console.log('no parent');
@@ -976,6 +984,15 @@ io.onConnection(channel => {
         let key = data as string;
         if (!room.controlKeys[id]) room.controlKeys[id] = {};
         room.controlKeys[id][key] = false;
+    });
+    channel.on('controlJump', data => {
+        if (!channel.roomId) return;
+        let room = rooms[channel.roomId];
+        if (!room) return;
+
+        if (room.controlObject[id]) {
+            room.controlJump[id] = true;
+        }
     });
 
 
