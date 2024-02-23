@@ -27,7 +27,7 @@ class Room {
     colliders: RAPIER.Collider[] = [];
     idToCollider: { [id: string]: RAPIER.Collider } = {};
 
-    cursors: { [id: string]: { x: number, y: number, z: number, color: number } } = {};
+    cursors: { [id: string]: { x: number, y: number, z: number, color: number, q: RAPIER.Quaternion } } = {};
     heldObjects: { [playerID: string]: RAPIER.RigidBody[] } = {};
     controlObject: { [playerID: string]: RAPIER.RigidBody } = {};
     controlKeys: { [playerID: string]: { [key: string]: boolean } } = {};
@@ -56,6 +56,7 @@ class Room {
             model: null,
             modelScale: null,
             modelOffset: null,
+            interactive: false,
         });
 
         // make stairs
@@ -77,6 +78,7 @@ class Room {
                 model: null,
                 modelScale: null,
                 modelOffset: null,
+                interactive: false,
             });
         }
 
@@ -95,6 +97,7 @@ class Room {
             model: null,
             modelScale: null,
             modelOffset: null,
+            interactive: true,
         });
 
         const box = this.addCuboid({
@@ -114,6 +117,7 @@ class Room {
             model: null,
             modelScale: null,
             modelOffset: null,
+            interactive: true,
         });
 
         const d6 = this.addCuboid({
@@ -133,6 +137,7 @@ class Room {
             model: null,
             modelScale: null,
             modelOffset: null,
+            interactive: true,
         });
 
         this.addMeeple(0xff0000, { x: -3, y: 0.1, z: 3 });
@@ -158,6 +163,7 @@ class Room {
             model: '/meeple.gltf',
             modelScale: 0.1,
             modelOffset: { x: 0, y: -1.99, z: 0 },
+            interactive: true,
         });
     }
 
@@ -286,6 +292,7 @@ class Room {
             model: cuboid.model,
             modelScale: cuboid.modelScale,
             modelOffset: cuboid.modelOffset,
+            interactive: cuboid.interactive,
         };
 
         bodyDesc.setUserData(data);
@@ -326,6 +333,7 @@ class Room {
             model: ball.model,
             modelScale: ball.modelScale,
             modelOffset: ball.modelOffset,
+            interactive: ball.interactive,
         };
 
         bodyDesc.setUserData(data);
@@ -361,7 +369,7 @@ class Room {
                 x: this.cursors[cursor].x,
                 y: this.cursors[cursor].y,
                 z: this.cursors[cursor].z,
-                rotation: RAPIER.RotationOps.identity(),
+                rotation: this.cursors[cursor].q,
             };
         }
 
@@ -407,6 +415,7 @@ class Room {
                 model: '/glove.gltf',
                 modelScale: 0.05,
                 modelOffset: { x: 0, y: 0, z: 0 },
+                interactive: false,
             };
 
             changed['cursor-' + cursor] = ball;
@@ -484,6 +493,7 @@ interface ShapeContentData {
     model: string | null;
     modelScale: number | null;
     modelOffset: { x: number, y: number, z: number } | null;
+    interactive: boolean;
 }
 
 interface CollisionSound {
@@ -548,6 +558,7 @@ interface ObjectData {
     model: string | null;
     modelScale: number | null;
     modelOffset: { x: number, y: number, z: number } | null;
+    interactive: boolean;
 }
 
 
@@ -568,6 +579,7 @@ interface BaseShapeData {
     model: string | null,
     modelScale: number | null,
     modelOffset: { x: number, y: number, z: number } | null;
+    interactive: boolean;
 }
 
 function getShapeContent(collider: RAPIER.Collider): ShapeContentData | null {
@@ -587,6 +599,7 @@ function getShapeContent(collider: RAPIER.Collider): ShapeContentData | null {
         model: bodyData.model,
         modelScale: bodyData.modelScale,
         modelOffset: bodyData.modelOffset,
+        interactive: bodyData.interactive,
     };
 
     switch (shape.type) {
@@ -639,7 +652,7 @@ rooms['zone'] = new Room();
 stepWorlds();
 
 let channelCount = 0;
-let colors = [0xffff00, 0x00ffff, 0x0000ff, 0xffff00, 0xff00ff, 0x00ffff];
+let colors = [0x2142ff, 0x8aee18, 0xee7016];
 
 io.onConnection(channel => {
     let id = channelCount++;
@@ -676,6 +689,7 @@ io.onConnection(channel => {
             model: '/glove.gltf',
             modelScale: 0.05,
             modelOffset: { x: 0, y: 0, z: 0 },
+            interactive: false,
         };
 
         room.changedContents['cursor-' + id] = ball;
@@ -723,6 +737,7 @@ io.onConnection(channel => {
             y: mouseData.y,
             z: mouseData.z,
             color: color,
+            q: room.cursors[id] ? room.cursors[id].q : RAPIER.RotationOps.identity(),
         };
         if (mouseData.coll !== undefined) {
             let coll = room.idToCollider[mouseData.coll];
@@ -837,6 +852,7 @@ io.onConnection(channel => {
             model: null,
             modelScale: null,
             modelOffset: null,
+            interactive: true,
         });
     });
 
@@ -955,17 +971,33 @@ io.onConnection(channel => {
             }
             room.heldObjects[id] = [];
         }
-        // TODO: remove cursors
+        // remove cursors with room.removedContents
+        delete room.cursors[id];
+        room.removedContents.push('cursor-' + id);
     });
-    channel.on('controlRotation', data => {
+    channel.on('camRotation', data => {
         if (!channel.roomId) return;
         let room = rooms[channel.roomId];
         if (!room) return;
 
+        let q = data as { x: number, y: number, z: number, w: number };
+        let quat = new RAPIER.Quaternion(q.x, q.y, q.z, q.w);
+
         let obj = room.controlObject[id];
-        if (!obj) return;
-        let quaternion = data as { x: number, y: number, z: number, w: number };
-        obj.setRotation(new RAPIER.Quaternion(quaternion.x, quaternion.y, quaternion.z, quaternion.w), true);
+        if (obj) {
+            obj.setRotation(quat, true);
+        }
+
+        // cursor transform
+        if (room.cursors[id]) {
+            room.cursors[id] = {
+                x: room.cursors[id].x,
+                y: room.cursors[id].y,
+                z: room.cursors[id].z,
+                color: color,
+                q: quat,
+            };
+        }
     });
     channel.on('controlKeyDown', data => {
         if (!channel.roomId) return;
@@ -993,6 +1025,46 @@ io.onConnection(channel => {
         if (room.controlObject[id]) {
             room.controlJump[id] = true;
         }
+    });
+
+    channel.on('hostUpgrade', data => {
+        if (!channel.roomId) return;
+        let room = rooms[channel.roomId];
+        if (!room) return;
+
+        let pass = data as string;
+        if (pass !== 'posterity') {
+            channel.emit('error', 'Invalid password');
+            return;
+        }
+        // now they are one with the room, we set their cursor to 0x000000
+        color = 0x000000;
+        room.cursors[id] = {
+            x: room.cursors[id].x,
+            y: room.cursors[id].y,
+            z: room.cursors[id].z,
+            color: color,
+            q: room.cursors[id] ? room.cursors[id].q : RAPIER.RotationOps.identity(),
+        };
+        // changed content
+        let ball: Ball = {
+            id: 'cursor-' + id,
+            name: 'Host Cursor',
+            description: undefined,
+            type: "ball",
+            color: color,
+            alpha: 1,
+            radius: 0.04,
+            model: '/glove.gltf',
+            modelScale: 0.05,
+            modelOffset: { x: 0, y: 0, z: 0 },
+            interactive: false,
+        };
+        room.changedContents['cursor-' + id] = ball;
+
+        // ok so now we have the queen, our glorious leader, our beacon of hope
+
+
     });
 
 
